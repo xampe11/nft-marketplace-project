@@ -1,0 +1,136 @@
+type NFT {
+  id: ID!
+  tokenId: String!
+  name: String!
+  description: String
+  image: String
+  owner: String!
+  creator: String!
+  price: Float
+  currency: String
+  isListed: Boolean!
+  createdAt: String!
+  updatedAt: String
+  collection: Collection
+  metadata: JSONObject
+  transactionHistory: [Transaction!]
+}
+
+type Collection {
+  id: ID!
+  name: String!
+  description: String
+  creator: String!
+  image: String
+  nfts: [NFT!]
+  floorPrice: Float
+  volume: Float
+  createdAt: String!
+}
+
+type Transaction {
+  id: ID!
+  nftId: ID!
+  from: String!
+  to: String!
+  price: Float
+  currency: String
+  transactionType: TransactionType!
+  transactionHash: String!
+  timestamp: String!
+}
+
+enum TransactionType {
+  MINT
+  SALE
+  TRANSFER
+  LIST
+  UNLIST
+}
+
+scalar JSONObject
+
+type Query {
+  # NFT queries
+  nft(id: ID!): NFT
+  nfts(
+    first: Int
+    skip: Int
+    orderBy: String
+    owner: String
+    creator: String
+    isListed: Boolean
+    collectionId: ID
+  ): [NFT!]!
+
+  # Collection queries
+  collection(id: ID!): Collection
+  collections(
+    first: Int
+    skip: Int
+    orderBy: String
+    creator: String
+  ): [Collection!]!
+
+  # Transaction queries
+  transactions(
+    nftId: ID
+    from: String
+    to: String
+    transactionType: TransactionType
+    first: Int
+    skip: Int
+  ): [Transaction!]!
+}
+
+type Mutation {
+  # NFT mutations
+  createNFT(
+    tokenId: String!
+    name: String!
+    description: String
+    image: String!
+    owner: String!
+    creator: String!
+    price: Float
+    currency: String
+    collectionId: ID
+    metadata: JSONObject
+  ): NFT!
+
+  updateNFT(
+    id: ID!
+    name: String
+    description: String
+    image: String
+    price: Float
+    currency: String
+    isListed: Boolean
+    owner: String
+    metadata: JSONObject
+  ): NFT!
+
+  # Collection mutations
+  createCollection(
+    name: String!
+    description: String
+    creator: String!
+    image: String
+  ): Collection!
+
+  # Transaction mutations
+  recordTransaction(
+    nftId: ID!
+    from: String!
+    to: String!
+    price: Float
+    currency: String
+    transactionType: TransactionType!
+    transactionHash: String!
+  ): Transaction!
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+}

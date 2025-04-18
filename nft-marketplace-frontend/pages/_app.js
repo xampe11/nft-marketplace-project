@@ -5,6 +5,7 @@ import Header from "../components/Header"
 import Head from "next/head"
 import { NotificationProvider } from "web3uikit"
 import { ApolloProvider, ApolloClient, InMemoryCache } from "@apollo/client"
+import { setContext } from '@apollo/client/link/context';
 
 const client = new ApolloClient({
     cache: new InMemoryCache(),

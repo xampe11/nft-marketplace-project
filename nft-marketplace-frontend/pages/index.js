@@ -2,7 +2,7 @@ import "../styles/Home.module.css"
 import { useMoralis } from "react-moralis"
 import NFTBox from "../components/NFTBox"
 import networkMapping from "../constants/networkMapping.json"
-import GET_ACTIVE_ITEMS from "../constants/subgraphQueries"
+import GET_ACTIVE_ITEMS from "../constants/subgraphQueries.js"
 import { useQuery } from "@apollo/client"
 
 export default function Home() {
@@ -11,6 +11,9 @@ export default function Home() {
     const marketplaceAddress = chainId ? networkMapping[chainString].NftMarketplace[0] : null
 
     const { loading, error, data: listedNfts } = useQuery(GET_ACTIVE_ITEMS)
+
+    if (loading) return <p>Loading gql...</p>
+    if (error) return <p>Graphql Error: {error.message}</p>
 
     return (
         <div className="container mx-auto">

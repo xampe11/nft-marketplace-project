@@ -12,22 +12,23 @@
     "moralis:cloud": "moralis-admin-cli watch-cloud-folder --moralisSubdomain wciosc5v5doe.usemoralis.com --autoSave 1 --moralisCloudfolder ./cloudFunctions"
   },
   "dependencies": {
-    "@apollo/client": "^3.9.10",
-    "@walletconnect/ethereum-provider": "^2.12.1",
-    "graphql": "^16.8.1",
+    "@apollo/client": "^3.13.7",
+    "@reown/walletkit": "^1.0.0",
+    "graphql": "^16.10.0",
     "moralis": "^1.11.0",
-    "moralis-v1": "^1.11.0",
-    "next": "12.1.5",
+    "moralis-v1": "^1.13.0",
+    "next": "^12.1.5",
     "react": "18.1.0",
     "react-dom": "18.1.0",
     "react-moralis": "^1.4.2",
+    "use-immer": "^0.11.0",
     "web3uikit": "^1.0.4"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.5",
     "dotenv": "^16.0.0",
     "eslint": "8.14.0",
-    "eslint-config-next": "12.1.5",
+    "eslint-config-next": "^15.3.0",
     "postcss": "^8.4.12",
     "tailwindcss": "^3.0.24"
   }

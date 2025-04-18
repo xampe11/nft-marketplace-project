@@ -1,15 +1,34 @@
-const { ethers, network } = require("hardhat")
+const { ethers, network, deployments } = require("hardhat")
 const { moveBlocks } = require("../utils/move-blocks")
+const { get } = deployments
 
 async function mint() {
-    const basicNft = await ethers.getContract("BasicNft")
+    //const basicNft = await ethers.getContract("BasicNft")
+    const basicNftDeployment = await get("BasicNft")
+    const basicNft = await ethers.getContractAt("BasicNft", basicNftDeployment.address)
+    const signer = await ethers.provider.getSigner()
+    const signerAddress = await signer.getAddress()
     console.log("Minting NFT...")
     const mintTx = await basicNft.mintNft()
     const mintTxReceipt = await mintTx.wait(1)
+    const transferEvent = mintTxReceipt.logs.find((log) => {
+        // The Transfer event has this topic
+        return log.topics[0] === ethers.id("Transfer(address,address,uint256)")
+    })
+
+    if (!transferEvent) {
+        console.log("No Transfer event found in transaction receipt")
+        console.log("Receipt:", mintTxReceipt)
+        return
+    }
+
+    const tokenId = transferEvent.topics[3] // This is the tokenId in hex
+
+    // Convert hex to decimal
+    const tokenIdDecimal = parseInt(tokenId, 16)
+
     console.log(
-        `Minted tokenId ${mintTxReceipt.events[0].args.tokenId.toString()} from contract ${
-            basicNft.address
-        }`
+        `Minted tokenId ${tokenIdDecimal} from contract ${basicNftDeployment.address} by ${signerAddress}`
     )
 
     if (network.config.chainId == 31337) {

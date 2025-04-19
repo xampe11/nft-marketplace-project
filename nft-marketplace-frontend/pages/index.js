@@ -1,16 +1,47 @@
 import "../styles/Home.module.css"
-import { useMoralis } from "react-moralis"
+import { useAccount, useChainId } from "wagmi"
 import NFTBox from "../components/NFTBox"
 import networkMapping from "../constants/networkMapping.json"
-import GET_ACTIVE_ITEMS from "../constants/subgraphQueries.js"
+import GET_NFTS from "../constants/subgraphQueries.js"
 import { useQuery } from "@apollo/client"
 
 export default function Home() {
-    const { chainId, isWeb3Enabled } = useMoralis()
-    const chainString = chainId ? parseInt(chainId).toString() : null
-    const marketplaceAddress = chainId ? networkMapping[chainString].NftMarketplace[0] : null
+    // Use wagmi v2 hooks
+    const { isConnected } = useAccount()
+    const chainId = useChainId()
 
-    const { loading, error, data: listedNfts } = useQuery(GET_ACTIVE_ITEMS)
+    // Get chain in the format expected by your networkMapping
+    const chainString = chainId ? chainId.toString() : null
+    const marketplaceAddress =
+        chainId && networkMapping[chainString]
+            ? networkMapping[chainString].NftMarketplace[0]
+            : null
+
+    const {
+        loading,
+        error,
+        data: listedNfts,
+        refetch,
+    } = useQuery(GET_NFTS, {
+        variables: {
+            first: 5,
+            skip: 0,
+            isListed: true,
+        },
+        errorPolicy: "all",
+        onError: (error) => {
+            console.error("GraphQL Error:", error)
+            // Log the full error for debugging
+            if (error.graphQLErrors) {
+                error.graphQLErrors.forEach((graphQLError) => {
+                    console.error("GraphQL Error Details:", graphQLError)
+                })
+            }
+            if (error.networkError) {
+                console.error("Network Error:", error.networkError)
+            }
+        },
+    })
 
     if (loading) return <p>Loading gql...</p>
     if (error) return <p>Graphql Error: {error.message}</p>
@@ -19,11 +50,11 @@ export default function Home() {
         <div className="container mx-auto">
             <h1 className="py-4 px-4 font-bold text-2xl">Recently Listed</h1>
             <div className="flex flex-wrap">
-                {isWeb3Enabled && chainId ? (
+                {isConnected && chainId ? (
                     loading || !listedNfts ? (
                         <div>Loading...</div>
                     ) : (
-                        listedNfts.activeItems.map((nft) => {
+                        listedNfts.nfts.map((nft) => {
                             const { price, nftAddress, tokenId, seller } = nft
                             return marketplaceAddress ? (
                                 <NFTBox

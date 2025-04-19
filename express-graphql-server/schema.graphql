@@ -53,6 +53,7 @@ scalar JSONObject
 type Query {
   # NFT queries
   nft(id: ID!): NFT
+  nftByTokenId(tokenId: String!): NFT
   nfts(
     first: Int
     skip: Int

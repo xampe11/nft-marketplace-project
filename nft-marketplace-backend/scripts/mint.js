@@ -26,10 +26,13 @@ async function mint() {
 
     // Convert hex to decimal
     const tokenIdDecimal = parseInt(tokenId, 16)
+    const numberOFNftsHolding = await basicNft.balanceOf(signerAddress)
 
     console.log(
         `Minted tokenId ${tokenIdDecimal} from contract ${basicNftDeployment.address} by ${signerAddress}`
     )
+
+    console.log(`Current number of Nfts holded by ${signerAddress} are ${numberOFNftsHolding}`)
 
     if (network.config.chainId == 31337) {
         await moveBlocks(2, (sleepAmount = 1000))

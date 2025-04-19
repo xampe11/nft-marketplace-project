@@ -1,4 +1,4 @@
-const { Web3 } = require("web3");
+const { ethers } = require("ethers");
 const {
   ApolloClient,
   InMemoryCache,
@@ -15,19 +15,26 @@ const MARKETPLACE_CONTRACT_ABI = require("./abis/NftMarketplace.json");
 // Import NFT and Marketplace addresses
 const networkMapping = require("./abis/networkMapping.json");
 
-// Set up Web3
-const web3 = new Web3(process.env.LOCAL_BLOCKCHAIN_URL);
+// Set up ethers provider
+const provider = new ethers.JsonRpcProvider(
+  process.env.LOCAL_BLOCKCHAIN_URL,
+  undefined,
+  {
+    polling: true,
+    staticNetwork: true,
+    pollingInterval: 4000, // 4 seconds
+  }
+);
 
 // Main function
 async function main() {
-  const chainId = await web3.eth.getChainId();
-
-  /* const chainId = await web3.eth.getChainId();
-      console.log(`Connected to chain ID: ${chainId}`); */
+  const chainId = (await provider.getNetwork()).chainId;
+  console.log("Connected to ChainId: ", chainId.toString());
 
   // Check if the networkMapping exists for this chainId
-  if (!networkMapping[chainId]) {
-    console.error(`No network mapping found for chainId ${chainId}`);
+  const chainIdString = chainId.toString();
+  if (!networkMapping[chainIdString]) {
+    console.error(`No network mapping found for chainId ${chainIdString}`);
     console.log(
       "Available chainIds in network mapping:",
       Object.keys(networkMapping)
@@ -37,28 +44,35 @@ async function main() {
 
   // Check if the BasicNft contract exists in the network mapping
   if (
-    !networkMapping[chainId].BasicNft ||
-    !networkMapping[chainId].BasicNft[0]
+    !networkMapping[chainIdString].BasicNft ||
+    !networkMapping[chainIdString].BasicNft[0]
   ) {
-    console.error(`BasicNft contract address not found for chainId ${chainId}`);
-    console.log("Available contracts:", Object.keys(networkMapping[chainId]));
+    console.error(
+      `BasicNft contract address not found for chainId ${chainIdString}`
+    );
+    console.log(
+      "Available contracts:",
+      Object.keys(networkMapping[chainIdString])
+    );
     process.exit(1);
   }
 
   // Contract addresses
-  const NFT_CONTRACT_ADDRESS = networkMapping[chainId].BasicNft[0];
+  const NFT_CONTRACT_ADDRESS = networkMapping[chainIdString].BasicNft[0];
   const MARKETPLACE_CONTRACT_ADDRESS =
-    networkMapping[chainId].NftMarketplace[0];
+    networkMapping[chainIdString].NftMarketplace[0];
 
   // Initialize contracts
-  const nftContract = new web3.eth.Contract(
+  const nftContract = new ethers.Contract(
+    NFT_CONTRACT_ADDRESS,
     NFT_CONTRACT_ABI,
-    NFT_CONTRACT_ADDRESS
+    provider
   );
 
-  const marketplaceContract = new web3.eth.Contract(
+  const marketplaceContract = new ethers.Contract(
+    MARKETPLACE_CONTRACT_ADDRESS,
     MARKETPLACE_CONTRACT_ABI,
-    MARKETPLACE_CONTRACT_ADDRESS
+    provider
   );
 
   // Set up Apollo Client
@@ -128,25 +142,20 @@ async function main() {
 
   const GET_NFT_BY_TOKEN_ID = gql`
     query GetNFTByTokenId($tokenId: String!) {
-      nfts(tokenId: $tokenId, first: 1) {
+      nftByTokenId(tokenId: $tokenId) {
         id
         tokenId
+        name
+        description
+        image
         owner
+        creator
+        price
+        currency
+        isListed
       }
     }
   `;
-
-  /* async function getChainId() {
-        try {
-          // Get the chain ID from the connected network
-          const chainId = await web3.eth.getChainId();
-          console.log(`Connected to chain ID: ${chainId}`);
-          return chainId;
-        } catch (error) {
-          console.error("Error getting chain ID:", error);
-          throw error;
-        }
-      } */
 
   // Function to fetch NFT metadata from IPFS or other storage
   async function fetchMetadata(tokenURI) {
@@ -177,20 +186,36 @@ async function main() {
         fetchPolicy: "network-only",
       });
 
-      if (result.data.nfts && result.data.nfts.length > 0) {
-        return result.data.nfts[0];
+      if (result.data.nftByTokenId) {
+        return result.data.nftByTokenId;
       }
       return null;
     } catch (error) {
       console.error(`Error finding NFT with token ID ${tokenId}:`, error);
+      // Extract and print the actual GraphQL error message
+      if (
+        error.networkError &&
+        error.networkError.result &&
+        error.networkError.result.errors
+      ) {
+        const graphqlErrors = error.networkError.result.errors;
+        console.error(
+          "GraphQL Error Details:",
+          JSON.stringify(graphqlErrors, null, 2)
+        );
+      }
       return null;
     }
   }
 
   // Process Transfer event
-  async function processTransferEvent(event) {
-    const { from, to, tokenId } = event.returnValues;
-    const txHash = event.transactionHash;
+  async function processTransferEvent(from, to, tokenId, event) {
+    const txHash = event.log?.transactionHash || event.transactionHash;
+
+    if (!txHash) {
+      console.log("Event structure:", JSON.stringify(event, null, 2));
+      throw new Error("Transaction hash not found in event");
+    }
 
     console.log(`Processing Transfer: Token #${tokenId} from ${from} to ${to}`);
 
@@ -231,7 +256,7 @@ async function main() {
       // This is a mint event and we don't have it in the database yet
       try {
         // Fetch token URI from contract
-        const tokenURI = await nftContract.methods.tokenURI(tokenId).call();
+        const tokenURI = await nftContract.tokenURI(tokenId);
         const metadata = await fetchMetadata(tokenURI);
 
         // Create NFT in database
@@ -273,14 +298,12 @@ async function main() {
   }
 
   // Process NFT Sale event
-  async function processSaleEvent(event) {
-    const { tokenId, seller, buyer, price } = event.returnValues;
-    const txHash = event.transactionHash;
+  async function processSaleEvent(tokenId, seller, buyer, price, event) {
+    const txHash = event.log.transactionHash;
 
     console.log(
-      `Processing Sale: Token #${tokenId} from ${seller} to ${buyer} for ${web3.utils.fromWei(
-        price,
-        "ether"
+      `Processing Sale: Token #${tokenId} from ${seller} to ${buyer} for ${ethers.formatEther(
+        price
       )} ETH`
     );
 
@@ -304,7 +327,7 @@ async function main() {
             nftId: existingNFT.id,
             from: seller,
             to: buyer,
-            price: parseFloat(web3.utils.fromWei(price, "ether")),
+            price: parseFloat(ethers.formatEther(price)),
             currency: "ETH",
             transactionType: "SALE",
             transactionHash: txHash,
@@ -320,15 +343,17 @@ async function main() {
     }
   }
 
-  // Process NFT Listing event
-  async function processListingEvent(event) {
-    const { tokenId, seller, price } = event.returnValues;
-    const txHash = event.transactionHash;
+  async function processListingEvent(tokenId, seller, price, event) {
+    const txHash = event.log?.transactionHash || event.transactionHash;
+
+    if (!txHash) {
+      console.log("Event structure:", JSON.stringify(event, null, 2));
+      throw new Error("Transaction hash not found in event");
+    }
 
     console.log(
-      `Processing Listing: Token #${tokenId} listed by ${seller} for ${web3.utils.fromWei(
-        price,
-        "ether"
+      `Processing Listing: Token #${tokenId} listed by ${seller} for ${ethers.formatEther(
+        price
       )} ETH`
     );
 
@@ -353,7 +378,7 @@ async function main() {
           `,
           variables: {
             id: existingNFT.id,
-            price: parseFloat(web3.utils.fromWei(price, "ether")),
+            price: parseFloat(ethers.formatEther(price)),
             isListed: true,
           },
         });
@@ -365,7 +390,191 @@ async function main() {
             nftId: existingNFT.id,
             from: seller,
             to: seller,
-            price: parseFloat(web3.utils.fromWei(price, "ether")),
+            price: parseFloat(ethers.formatEther(price)),
+            currency: "ETH",
+            transactionType: "LIST",
+            transactionHash: txHash,
+          },
+        });
+
+        console.log(`Recorded listing of token #${tokenId}`);
+      } catch (error) {
+        console.error(`Error recording listing of NFT #${tokenId}:`, error);
+      }
+    } else {
+      console.log(`Token #${tokenId} not found. Creating new NFT record...`);
+
+      try {
+        // Fetch token metadata from the blockchain
+        const tokenURI = await nftContract.tokenURI(tokenId);
+        let metadata = {};
+        let name = `NFT #${tokenId}`;
+        let description = "";
+        let image = "";
+
+        // Try to fetch metadata if tokenURI is available
+        if (tokenURI) {
+          try {
+            // Handle different URI formats (ipfs://, https://, etc.)
+            const metadataURL = tokenURI.replace(
+              "ipfs://",
+              "https://ipfs.io/ipfs/"
+            );
+            const response = await fetch(metadataURL);
+            metadata = await response.json();
+            name = metadata.name || name;
+            description = metadata.description || description;
+            image = metadata.image || "";
+
+            // Convert IPFS image URLs to gateway URLs if needed
+            if (image.startsWith("ipfs://")) {
+              image = image.replace("ipfs://", "https://ipfs.io/ipfs/");
+            }
+          } catch (metadataError) {
+            console.error(
+              `Error fetching metadata for token #${tokenId}:`,
+              metadataError
+            );
+          }
+        }
+
+        // Create new NFT record
+        const createResult = await apolloClient.mutate({
+          mutation: gql`
+            mutation CreateNFT(
+              $tokenId: String!
+              $name: String!
+              $owner: String!
+              $creator: String!
+              $price: Float
+            ) {
+              createNFT(
+                tokenId: $tokenId
+                name: $name
+                owner: $owner
+                creator: $creator
+                price: $price
+              ) {
+                id
+                tokenId
+                name
+              }
+            }
+          `,
+          variables: {
+            tokenId: tokenId.toString(),
+            name: name || `NFT #${tokenId}`,
+            owner: seller,
+            creator: seller,
+            price: parseFloat(ethers.formatEther(price)),
+          },
+        });
+
+        const newNFT = createResult.data.createNFT;
+        console.log(
+          `Created new NFT record for token #${tokenId} with ID: ${newNFT.id}`
+        );
+
+        // Now update it to be listed after creation
+        await apolloClient.mutate({
+          mutation: gql`
+            mutation UpdateNFTListing(
+              $id: ID!
+              $price: Float!
+              $isListed: Boolean!
+            ) {
+              updateNFT(
+                id: $id
+                input: { price: $price, isListed: $isListed }
+              ) {
+                id
+                isListed
+                price
+              }
+            }
+          `,
+          variables: {
+            id: newNFT.id,
+            price: parseFloat(ethers.formatEther(price)),
+            isListed: true,
+          },
+        });
+
+        // Record listing transaction for the newly created NFT
+        await apolloClient.mutate({
+          mutation: RECORD_TRANSACTION,
+          variables: {
+            nftId: newNFT.id,
+            from: seller,
+            to: seller,
+            price: parseFloat(ethers.formatEther(price)),
+            currency: "ETH",
+            transactionType: "LIST",
+            transactionHash: txHash,
+          },
+        });
+
+        console.log(
+          `Recorded listing transaction for newly created token #${tokenId}`
+        );
+      } catch (error) {
+        console.error(
+          `Error creating NFT record for token #${tokenId}:`,
+          error
+        );
+      }
+    }
+  }
+
+  // Process NFT Listing event
+  /* async function processListingEvent(tokenId, seller, price, event) {
+    const txHash = event.log?.transactionHash || event.transactionHash;
+
+    if (!txHash) {
+      console.log("Event structure:", JSON.stringify(event, null, 2));
+      throw new Error("Transaction hash not found in event");
+    }
+
+    console.log(
+      `Processing Listing: Token #${tokenId} listed by ${seller} for ${ethers.formatEther(
+        price
+      )} ETH`
+    );
+
+    const existingNFT = await findNFTByTokenId(tokenId);
+
+    if (existingNFT) {
+      try {
+        // Update NFT listing status
+        await apolloClient.mutate({
+          mutation: gql`
+            mutation UpdateNFTListing(
+              $id: ID!
+              $price: Float!
+              $isListed: Boolean!
+            ) {
+              updateNFT(id: $id, price: $price, isListed: $isListed) {
+                id
+                isListed
+                price
+              }
+            }
+          `,
+          variables: {
+            id: existingNFT.id,
+            price: parseFloat(ethers.formatEther(price)),
+            isListed: true,
+          },
+        });
+
+        // Record listing transaction
+        await apolloClient.mutate({
+          mutation: RECORD_TRANSACTION,
+          variables: {
+            nftId: existingNFT.id,
+            from: seller,
+            to: seller,
+            price: parseFloat(ethers.formatEther(price)),
             currency: "ETH",
             transactionType: "LIST",
             transactionHash: txHash,
@@ -381,12 +590,11 @@ async function main() {
         `Listing for token #${tokenId} but token not in our database`
       );
     }
-  }
+  } */
 
   // Process NFT Canceled Listing event
-  async function processCanceledListingEvent(event) {
-    const { tokenId, seller } = event.returnValues;
-    const txHash = event.transactionHash;
+  async function processCanceledListingEvent(tokenId, seller, event) {
+    const txHash = event.log.transactionHash;
 
     console.log(
       `Processing Canceled Listing: Token #${tokenId} unlisted by ${seller}`
@@ -439,53 +647,107 @@ async function main() {
     console.log("Starting blockchain event listeners...");
 
     // Get latest block number
-    const latestBlock = await web3.eth.getBlockNumber();
+    const latestBlock = await provider.getBlockNumber();
     console.log(`Current block number: ${latestBlock}`);
 
     // You might want to store the last processed block in a database
     // to avoid reprocessing everything on restart
-    const fromBlock = process.env.START_BLOCK || latestBlock;
+    const fromBlock = process.env.START_BLOCK
+      ? parseInt(process.env.START_BLOCK)
+      : latestBlock;
 
     // Process past events
     console.log(`Processing past events from block ${fromBlock}`);
 
-    // Listen to Transfer events (for minting and transfers)
-    nftContract.events
-      .Transfer({
-        fromBlock,
-      })
-      .on("data", processTransferEvent)
-      .on("error", console.error);
+    try {
+      // Set up event listeners
+      console.log("Setting up event listeners...");
 
-    // Listen to marketplace events
-    // NFT Listed event
-    marketplaceContract.events
-      .ItemListed({
-        fromBlock,
-      })
-      .on("data", processListingEvent)
-      .on("error", console.error);
+      // Listen for Transfer events (minting and transfers)
+      nftContract.on("Transfer", processTransferEvent);
 
-    // NFT Sale event
-    marketplaceContract.events
-      .ItemSold({
-        fromBlock,
-      })
-      .on("data", processSaleEvent)
-      .on("error", console.error);
+      // Listen for marketplace events
+      marketplaceContract.on("ItemListed", processListingEvent);
+      marketplaceContract.on("ItemBought", processSaleEvent);
+      marketplaceContract.on("ItemCanceled", processCanceledListingEvent);
 
-    // NFT Listing Canceled event
-    marketplaceContract.events
-      .ItemCanceled({
-        fromBlock,
-      })
-      .on("data", processCanceledListingEvent)
-      .on("error", console.error);
+      // Process past events
+      console.log("Fetching past events...");
 
-    console.log("Event listeners started");
+      // Get past Transfer events
+      const transferFilter = nftContract.filters.Transfer();
+      const pastTransferEvents = await nftContract.queryFilter(
+        transferFilter,
+        fromBlock
+      );
+
+      console.log(`Found ${pastTransferEvents.length} past Transfer events`);
+
+      for (const event of pastTransferEvents) {
+        const { from, to, tokenId } = event.args;
+        await processTransferEvent(from, to, tokenId, event);
+      }
+
+      // Get past ItemListed events
+      const itemListedFilter = marketplaceContract.filters.ItemListed();
+      const pastItemListedEvents = await marketplaceContract.queryFilter(
+        itemListedFilter,
+        fromBlock
+      );
+
+      console.log(
+        `Found ${pastItemListedEvents.length} past ItemListed events`
+      );
+
+      for (const event of pastItemListedEvents) {
+        const { tokenId, seller, price } = event.args;
+        await processListingEvent(tokenId, seller, price, event);
+      }
+
+      // Get past ItemBought events
+      const ItemBoughtFilter = marketplaceContract.filters.ItemBought();
+      const pastItemBoughtEvents = await marketplaceContract.queryFilter(
+        ItemBoughtFilter,
+        fromBlock
+      );
+
+      console.log(
+        `Found ${pastItemBoughtEvents.length} past ItemBought events`
+      );
+
+      for (const event of pastItemBoughtEvents) {
+        const { tokenId, seller, buyer, price } = event.args;
+        await processSaleEvent(tokenId, seller, buyer, price, event);
+      }
+
+      // Get past ItemCanceled events
+      const itemCanceledFilter = marketplaceContract.filters.ItemCanceled();
+      const pastItemCanceledEvents = await marketplaceContract.queryFilter(
+        itemCanceledFilter,
+        fromBlock
+      );
+
+      console.log(
+        `Found ${pastItemCanceledEvents.length} past ItemCanceled events`
+      );
+
+      for (const event of pastItemCanceledEvents) {
+        const { tokenId, seller } = event.args;
+        await processCanceledListingEvent(tokenId, seller, event);
+      }
+
+      console.log("Event listeners started");
+    } catch (error) {
+      console.error("Error setting up event listeners:", error);
+      throw error;
+    }
   }
+
   try {
     await startEventListeners();
+
+    // Keep the process running to continue listening for events
+    console.log("Listening for new events. Press Ctrl+C to exit.");
   } catch (error) {
     console.error("Error starting event listeners:", error);
     process.exit(1);

@@ -31,6 +31,10 @@ const resolvers = {
       return await NFT.findById(id);
     },
 
+    nftByTokenId: async (_, { tokenId }, context) => {
+      return await NFT.findOne({ tokenId: tokenId });
+    },
+
     nfts: async (_, args, context) => {
       const {
         first = 10,

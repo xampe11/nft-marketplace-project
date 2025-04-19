@@ -1,4 +1,4 @@
-import { ConnectButton } from "web3uikit"
+import { ConnectButton } from "@rainbow-me/rainbowkit"
 import Link from "next/link"
 import "../styles/Home.module.css"
 
@@ -13,7 +13,7 @@ export default function Header() {
                 <Link href="/sell-nft">
                     <a className="mr-4 p-6">Sell NFT</a>
                 </Link>
-                <ConnectButton moralisAuth={false} />
+                <ConnectButton />
             </div>
         </nav>
     )

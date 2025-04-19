@@ -1,16 +1,14 @@
 import { useState, useEffect } from "react"
-import { useWeb3Contract, useMoralis } from "react-moralis"
+import { useReadContract, useWriteContract, useAccount, useSimulateContract } from "wagmi"
 import nftMarketplaceAbi from "../constants/NftMarketplace.json"
 import nftAbi from "../constants/BasicNft.json"
 import Image from "next/image"
-import { Card, useNotification } from "web3uikit"
-import { ethers } from "ethers"
+import { formatEther } from "viem" // Use viem for formatting instead of ethers
 import UpdateListingModal from "./UpdateListingModal"
 import "../styles/Home.module.css"
 
 const truncateStr = (fullStr, strLen) => {
     if (fullStr.length <= strLen) return fullStr
-
     const separator = "..."
     const seperatorLength = separator.length
     const charsToShow = strLen - seperatorLength
@@ -22,81 +20,82 @@ const truncateStr = (fullStr, strLen) => {
 }
 
 export default function NFTBox({ price, nftAddress, tokenId, marketplaceAddress, seller }) {
-    const { isWeb3Enabled, account } = useMoralis()
+    const { address: account, isConnected } = useAccount()
     const [imageURI, setImageURI] = useState("")
     const [tokenName, setTokenName] = useState("")
     const [tokenDescription, setTokenDescription] = useState("")
     const [showModal, setShowModal] = useState(false)
     const hideModal = () => setShowModal(false)
-    const dispatch = useNotification()
 
-    const { runContractFunction: getTokenURI } = useWeb3Contract({
+    // Read the token URI
+    const { data: tokenURI } = useReadContract({
+        address: nftAddress,
         abi: nftAbi,
-        contractAddress: nftAddress,
         functionName: "tokenURI",
-        params: {
-            tokenId: tokenId,
+        args: [tokenId],
+        query: {
+            enabled: isConnected,
         },
     })
 
-    const { runContractFunction: buyItem } = useWeb3Contract({
+    // Simulate the buy transaction
+    const { data: buyItemData } = useSimulateContract({
+        address: marketplaceAddress,
         abi: nftMarketplaceAbi,
-        contractAddress: marketplaceAddress,
         functionName: "buyItem",
-        msgValue: price,
-        params: {
-            nftAddress: nftAddress,
-            tokenId: tokenId,
+        args: [nftAddress, tokenId],
+        value: price,
+        query: {
+            enabled: Boolean(price) && isConnected && seller !== account,
         },
     })
 
-    async function updateUI() {
-        const tokenURI = await getTokenURI()
-        console.log(`The TokenURI is ${tokenURI}`)
-        // We are going to cheat a little here...
-        if (tokenURI) {
-            // IPFS Gateway: A server that will return IPFS files from a "normal" URL.
-            const requestURL = tokenURI.replace("ipfs://", "https://ipfs.io/ipfs/")
-            const tokenURIResponse = await (await fetch(requestURL)).json()
-            const imageURI = tokenURIResponse.image
-            const imageURIURL = imageURI.replace("ipfs://", "https://ipfs.io/ipfs/")
-            setImageURI(imageURIURL)
-            setTokenName(tokenURIResponse.name)
-            setTokenDescription(tokenURIResponse.description)
-            // We could render the Image on our sever, and just call our sever.
-            // For testnets & mainnet -> use moralis server hooks
-            // Have the world adopt IPFS
-            // Build our own IPFS gateway
-        }
-        // get the tokenURI
-        // using the image tag from the tokenURI, get the image
-    }
+    // Set up the buy function
+    const {
+        writeContract: buyItem,
+        isPending: isBuyPending,
+        isSuccess: isBuySuccess,
+    } = useWriteContract()
 
+    // Handle success state
     useEffect(() => {
-        if (isWeb3Enabled) {
+        if (isBuySuccess) {
+            alert("Item bought successfully!")
+        }
+    }, [isBuySuccess])
+
+    // Update UI when tokenURI is available
+    useEffect(() => {
+        if (tokenURI) {
             updateUI()
         }
-    }, [isWeb3Enabled])
+    }, [tokenURI])
+
+    async function updateUI() {
+        if (tokenURI) {
+            try {
+                const requestURL = tokenURI.replace("ipfs://", "https://ipfs.io/ipfs/")
+                const tokenURIResponse = await (await fetch(requestURL)).json()
+                const imageURI = tokenURIResponse.image
+                const imageURIURL = imageURI.replace("ipfs://", "https://ipfs.io/ipfs/")
+                setImageURI(imageURIURL)
+                setTokenName(tokenURIResponse.name)
+                setTokenDescription(tokenURIResponse.description)
+            } catch (error) {
+                console.error("Error fetching token metadata:", error)
+            }
+        }
+    }
 
     const isOwnedByUser = seller === account || seller === undefined
     const formattedSellerAddress = isOwnedByUser ? "you" : truncateStr(seller || "", 15)
 
     const handleCardClick = () => {
-        isOwnedByUser
-            ? setShowModal(true)
-            : buyItem({
-                  onError: (error) => console.log(error),
-                  onSuccess: () => handleBuyItemSuccess(),
-              })
-    }
-
-    const handleBuyItemSuccess = () => {
-        dispatch({
-            type: "success",
-            message: "Item bought!",
-            title: "Item Bought",
-            position: "topR",
-        })
+        if (isOwnedByUser) {
+            setShowModal(true)
+        } else if (buyItemData) {
+            buyItem(buyItemData.request)
+        }
     }
 
     return (
@@ -111,13 +110,14 @@ export default function NFTBox({ price, nftAddress, tokenId, marketplaceAddress,
                             nftAddress={nftAddress}
                             onClose={hideModal}
                         />
-                        <Card
-                            title={tokenName}
-                            description={tokenDescription}
+                        <div
+                            className="border rounded-lg overflow-hidden m-2 cursor-pointer"
                             onClick={handleCardClick}
                         >
-                            <div className="p-2">
-                                <div className="flex flex-col items-end gap-2">
+                            <div className="p-4">
+                                <h3 className="font-bold text-lg">{tokenName}</h3>
+                                <p className="text-sm">{tokenDescription}</p>
+                                <div className="flex flex-col items-end gap-2 mt-2">
                                     <div>#{tokenId}</div>
                                     <div className="italic text-sm">
                                         Owned by {formattedSellerAddress}
@@ -127,13 +127,14 @@ export default function NFTBox({ price, nftAddress, tokenId, marketplaceAddress,
                                         src={imageURI}
                                         height="200"
                                         width="200"
+                                        alt={tokenName}
                                     />
                                     <div className="font-bold">
-                                        {ethers.utils.formatUnits(price, "ether")} ETH
+                                        {formatEther(BigInt(price))} ETH
                                     </div>
                                 </div>
                             </div>
-                        </Card>
+                        </div>
                     </div>
                 ) : (
                     <div>Loading...</div>

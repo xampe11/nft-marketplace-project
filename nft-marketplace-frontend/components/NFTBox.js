@@ -27,16 +27,29 @@ export default function NFTBox({ price, nftAddress, tokenId, marketplaceAddress,
     const [showModal, setShowModal] = useState(false)
     const hideModal = () => setShowModal(false)
 
+    console.log("NFTBox_nftAddress: ", nftAddress)
+
     // Read the token URI
-    const { data: tokenURI } = useReadContract({
+    const {
+        data: tokenURI,
+        isError,
+        error,
+    } = useReadContract({
         address: nftAddress,
         abi: nftAbi,
         functionName: "tokenURI",
         args: [tokenId],
         query: {
-            enabled: isConnected,
+            enabled: Boolean(nftAddress) && Boolean(tokenId) && isConnected,
         },
     })
+
+    console.log("NFTBox_tokenURI: ", tokenURI)
+    console.log("NFTBox_nftAddress:", nftAddress)
+    console.log("NFTBox_tokenId:", tokenId)
+    console.log("NFTBox_isConnected:", isConnected)
+    console.log("NFTBox_tokenURI:", tokenURI)
+    console.log("NFTBox_tokenURI_error:", isError ? error : "No error")
 
     // Simulate the buy transaction
     const { data: buyItemData } = useSimulateContract({

@@ -38,3 +38,19 @@ db.createCollection("transactions")
 
 # Exit the MongoDB shell
 exit
+
+--------------------
+# Run graphql local server
+npm run start
+
+--------------------
+# Run hardhat local blockchain
+npx hardhat node
+
+--------------------
+# Run event-listener
+npx node blockchain-events.js
+
+--------------------
+# Run front-end
+npm run dev

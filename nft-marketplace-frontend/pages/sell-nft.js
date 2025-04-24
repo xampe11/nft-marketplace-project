@@ -1,156 +1,202 @@
 import Head from "next/head"
 import Image from "next/image"
 import styles from "../styles/Home.module.css"
-import { Form, useNotification, Button } from "web3uikit"
-import { useMoralis, useWeb3Contract } from "react-moralis"
-import { ethers } from "ethers"
+import { useReadContract, useWriteContract, useAccount, useChainId, useSimulateContract } from "wagmi"
+import { parseEther, formatEther } from "viem"
 import nftAbi from "../constants/BasicNft.json"
 import nftMarketplaceAbi from "../constants/NftMarketplace.json"
 import networkMapping from "../constants/networkMapping.json"
 import { useEffect, useState } from "react"
 
 export default function Home() {
-    const { chainId, account, isWeb3Enabled } = useMoralis()
-    const chainString = chainId ? parseInt(chainId).toString() : "31337"
-    const marketplaceAddress = networkMapping[chainString].NftMarketplace[0]
-    const dispatch = useNotification()
+    // Replace Moralis hooks with wagmi hooks
+    const { address: account, isConnected } = useAccount()
+    const chainId = useChainId()
+    const chainString = chainId ? chainId.toString() : "31337"
+    const marketplaceAddress = networkMapping[chainString]?.NftMarketplace?.[0]
+    
     const [proceeds, setProceeds] = useState("0")
+    const [nftAddress, setNftAddress] = useState("")
+    const [tokenId, setTokenId] = useState("")
+    const [price, setPrice] = useState("")
+    const [notification, setNotification] = useState(null)
 
-    const { runContractFunction } = useWeb3Contract()
+    // Set up contract write function
+    const { writeContract, isPending, isSuccess } = useWriteContract()
 
-    async function approveAndList(data) {
-        console.log("Approving...")
-        const nftAddress = data.data[0].inputResult
-        const tokenId = data.data[1].inputResult
-        const price = ethers.utils.parseUnits(data.data[2].inputResult, "ether").toString()
-
-        const approveOptions = {
-            abi: nftAbi,
-            contractAddress: nftAddress,
-            functionName: "approve",
-            params: {
-                to: marketplaceAddress,
-                tokenId: tokenId,
-            },
+    // Get approval data
+    const { data: approveData } = useSimulateContract({
+        address: nftAddress,
+        abi: nftAbi,
+        functionName: "approve",
+        args: [marketplaceAddress, tokenId],
+        query: {
+            enabled: Boolean(nftAddress && tokenId && marketplaceAddress && isConnected),
         }
+    })
 
-        await runContractFunction({
-            params: approveOptions,
-            onSuccess: (tx) => handleApproveSuccess(tx, nftAddress, tokenId, price),
-            onError: (error) => {
-                console.log(error)
-            },
-        })
-    }
-
-    async function handleApproveSuccess(tx, nftAddress, tokenId, price) {
-        console.log("Ok! Now time to list")
-        await tx.wait(1)
-        const listOptions = {
-            abi: nftMarketplaceAbi,
-            contractAddress: marketplaceAddress,
-            functionName: "listItem",
-            params: {
-                nftAddress: nftAddress,
-                tokenId: tokenId,
-                price: price,
-            },
+    // Get listing data
+    const { data: listItemData } = useSimulateContract({
+        address: marketplaceAddress,
+        abi: nftMarketplaceAbi,
+        functionName: "listItem",
+        args: [nftAddress, tokenId, price ? parseEther(price) : BigInt(0)],
+        query: {
+            enabled: Boolean(nftAddress && tokenId && price && marketplaceAddress && isConnected),
         }
+    })
 
-        await runContractFunction({
-            params: listOptions,
-            onSuccess: () => handleListSuccess(),
-            onError: (error) => console.log(error),
-        })
-    }
-
-    async function handleListSuccess() {
-        dispatch({
-            type: "success",
-            message: "NFT listing",
-            title: "NFT listed",
-            position: "topR",
-        })
-    }
-
-    const handleWithdrawSuccess = () => {
-        dispatch({
-            type: "success",
-            message: "Withdrawing proceeds",
-            position: "topR",
-        })
-    }
-
-    async function setupUI() {
-        const returnedProceeds = await runContractFunction({
-            params: {
-                abi: nftMarketplaceAbi,
-                contractAddress: marketplaceAddress,
-                functionName: "getProceeds",
-                params: {
-                    seller: account,
-                },
-            },
-            onError: (error) => console.log(error),
-        })
-        if (returnedProceeds) {
-            setProceeds(returnedProceeds.toString())
+    // Get withdraw data
+    const { data: withdrawData } = useSimulateContract({
+        address: marketplaceAddress,
+        abi: nftMarketplaceAbi,
+        functionName: "withdrawProceeds",
+        query: {
+            enabled: Boolean(marketplaceAddress && isConnected && proceeds !== "0"),
         }
+    })
+
+    // Get proceeds
+    const { data: proceedsData, refetch: refetchProceeds } = useReadContract({
+        address: marketplaceAddress,
+        abi: nftMarketplaceAbi,
+        functionName: "getProceeds",
+        args: [account],
+        query: {
+            enabled: Boolean(account && marketplaceAddress && isConnected),
+        }
+    })
+
+    // Handle form submission
+    async function handleSubmit(e) {
+        e.preventDefault()
+        if (!approveData) return
+        
+        // Show notification
+        showNotification("Approving NFT for marketplace...")
+        
+        // Call approve function
+        writeContract(approveData.request)
     }
 
+    // Handle approval success
     useEffect(() => {
-        setupUI()
-    }, [proceeds, account, isWeb3Enabled, chainId])
+        if (isSuccess && approveData && nftAddress && tokenId && price) {
+            showNotification("Approval successful! Now listing NFT...")
+            setTimeout(() => {
+                if (listItemData) {
+                    writeContract(listItemData.request)
+                }
+            }, 1000) // Small delay to allow transaction to be processed
+        }
+    }, [isSuccess, approveData])
+
+    // Handle withdraw
+    const handleWithdraw = () => {
+        if (withdrawData) {
+            showNotification("Processing withdrawal...")
+            writeContract(withdrawData.request)
+        }
+    }
+
+    // Show notification
+    const showNotification = (message) => {
+        setNotification({
+            message,
+            timestamp: Date.now()
+        })
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            setNotification(null)
+        }, 5000)
+    }
+
+    // Update proceeds when data changes
+    useEffect(() => {
+        if (proceedsData) {
+            setProceeds(proceedsData.toString())
+        }
+    }, [proceedsData])
+
+    // Setup UI and refetch proceeds when needed
+    useEffect(() => {
+        if (isConnected && marketplaceAddress) {
+            refetchProceeds()
+        }
+    }, [account, isConnected, chainId, isSuccess])
 
     return (
         <div className={styles.container}>
-            <Form
-                onSubmit={approveAndList}
-                data={[
-                    {
-                        name: "NFT Address",
-                        type: "text",
-                        inputWidth: "50%",
-                        value: "",
-                        key: "nftAddress",
-                    },
-                    {
-                        name: "Token ID",
-                        type: "number",
-                        value: "",
-                        key: "tokenId",
-                    },
-                    {
-                        name: "Price (in ETH)",
-                        type: "number",
-                        value: "",
-                        key: "price",
-                    },
-                ]}
-                title="Sell your NFT!"
-                id="Main Form"
-            />
-            <div>Withdraw {proceeds} proceeds</div>
-            {proceeds != "0" ? (
-                <Button
-                    onClick={() => {
-                        runContractFunction({
-                            params: {
-                                abi: nftMarketplaceAbi,
-                                contractAddress: marketplaceAddress,
-                                functionName: "withdrawProceeds",
-                                params: {},
-                            },
-                            onError: (error) => console.log(error),
-                            onSuccess: () => handleWithdrawSuccess,
-                        })
-                    }}
-                    text="Withdraw"
-                    type="button"
-                />
-            ) : (
-                <div>No proceeds detected</div>
+            {notification && (
+                <div className="fixed top-4 right-4 bg-blue-500 text-white p-4 rounded shadow-lg z-50">
+                    {notification.message}
+                </div>
             )}
+            
+            <form onSubmit={handleSubmit} className="mb-8 p-6 bg-white rounded shadow">
+                <h2 className="text-xl font-bold mb-4">Sell your NFT!</h2>
+                
+                <div className="mb-4">
+                    <label className="block mb-2">NFT Address</label>
+                    <input
+                        type="text"
+                        value={nftAddress}
+                        onChange={(e) => setNftAddress(e.target.value)}
+                        className="w-1/2 p-2 border rounded"
+                        placeholder="0x..."
+                        required
+                    />
+                </div>
+                
+                <div className="mb-4">
+                    <label className="block mb-2">Token ID</label>
+                    <input
+                        type="number"
+                        value={tokenId}
+                        onChange={(e) => setTokenId(e.target.value)}
+                        className="w-1/4 p-2 border rounded"
+                        placeholder="0"
+                        required
+                    />
+                </div>
+                
+                <div className="mb-4">
+                    <label className="block mb-2">Price (in ETH)</label>
+                    <input
+                        type="text"
+                        value={price}
+                        onChange={(e) => setPrice(e.target.value)}
+                        className="w-1/4 p-2 border rounded"
+                        placeholder="0.1"
+                        required
+                    />
+                </div>
+                
+                <button
+                    type="submit"
+                    className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                    disabled={isPending || !isConnected}
+                >
+                    {isPending ? "Processing..." : "List NFT"}
+                </button>
+            </form>
+            
+            <div className="p-6 bg-white rounded shadow">
+                <div className="mb-2">Withdraw {formatEther(BigInt(proceeds || "0"))} ETH proceeds</div>
+                
+                {proceeds !== "0" ? (
+                    <button
+                        onClick={handleWithdraw}
+                        className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                        disabled={isPending || !isConnected}
+                    >
+                        {isPending ? "Processing..." : "Withdraw"}
+                    </button>
+                ) : (
+                    <div className="text-gray-500">No proceeds detected</div>
+                )}
+            </div>
         </div>
     )
 }

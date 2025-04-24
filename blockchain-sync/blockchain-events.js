@@ -346,8 +346,15 @@ async function main() {
   async function processListingEvent(tokenId, seller, price, event) {
     const txHash = event.log?.transactionHash || event.transactionHash;
 
+    function replaceBigInt(key, value) {
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      return value;
+    }
+
     if (!txHash) {
-      console.log("Event structure:", JSON.stringify(event, null, 2));
+      console.log("Event structure:", JSON.stringify(event, replaceBigInt, 2));
       throw new Error("Transaction hash not found in event");
     }
 

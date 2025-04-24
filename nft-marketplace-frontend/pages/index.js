@@ -9,14 +9,18 @@ export default function Home() {
     // Use wagmi v2 hooks
     const { isConnected } = useAccount()
     const chainId = useChainId()
-
+    console.log("Current chain Id: ", chainId)
+    
     // Get chain in the format expected by your networkMapping
     const chainString = chainId ? chainId.toString() : null
     const marketplaceAddress =
         chainId && networkMapping[chainString]
             ? networkMapping[chainString].NftMarketplace[0]
             : null
-
+    const nftAddress = chainId && networkMapping[chainString]
+    ? networkMapping[chainString].BasicNft[0]
+    : null
+    
     const {
         loading,
         error,
@@ -31,7 +35,6 @@ export default function Home() {
         errorPolicy: "all",
         onError: (error) => {
             console.error("GraphQL Error:", error)
-            // Log the full error for debugging
             if (error.graphQLErrors) {
                 error.graphQLErrors.forEach((graphQLError) => {
                     console.error("GraphQL Error Details:", graphQLError)
@@ -42,36 +45,53 @@ export default function Home() {
             }
         },
     })
-
-    if (loading) return <p>Loading gql...</p>
-    if (error) return <p>Graphql Error: {error.message}</p>
-
+    
+    // Debug current state
+    console.log("Query state:", { loading, error, listedNfts })
+    
     return (
         <div className="container mx-auto">
             <h1 className="py-4 px-4 font-bold text-2xl">Recently Listed</h1>
             <div className="flex flex-wrap">
-                {isConnected && chainId ? (
-                    loading || !listedNfts ? (
-                        <div>Loading...</div>
-                    ) : (
+                {!isConnected && (
+                    <div>Please connect your wallet to view listings</div>
+                )}
+                
+                {isConnected && !chainId && (
+                    <div>Chain ID not available. Please check your network connection.</div>
+                )}
+                
+                {isConnected && chainId && !marketplaceAddress && (
+                    <div>Network error, please switch to a supported network.</div>
+                )}
+                
+                {isConnected && chainId && marketplaceAddress && loading && (
+                    <div>Loading NFT listings...</div>
+                )}
+                
+                {isConnected && chainId && marketplaceAddress && error && (
+                    <div>Error loading listings: {error.message}</div>
+                )}
+                
+                {isConnected && chainId && marketplaceAddress && !loading && !error && listedNfts && listedNfts.nfts && (
+                    listedNfts.nfts.length > 0 ? (
                         listedNfts.nfts.map((nft) => {
-                            const { price, nftAddress, tokenId, seller } = nft
-                            return marketplaceAddress ? (
+                            const { price, tokenId, owner } = nft
+                            console.log("Rendering NFT:", nft)
+                            return (
                                 <NFTBox
                                     price={price}
-                                    nftAddress={nftAddress}
                                     tokenId={tokenId}
-                                    marketplaceAddress={marketplaceAddress}
-                                    seller={seller}
+                                    owner={owner}
                                     key={`${nftAddress}${tokenId}`}
+                                    nftAddress={nftAddress}
+                                    marketplaceAddress={marketplaceAddress}
                                 />
-                            ) : (
-                                <div>Network error, please switch to a supported network. </div>
                             )
                         })
+                    ) : (
+                        <div>No NFTs currently listed</div>
                     )
-                ) : (
-                    <div>Web3 Currently Not Enabled</div>
                 )}
             </div>
         </div>

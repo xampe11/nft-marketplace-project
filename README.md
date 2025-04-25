@@ -36,6 +36,9 @@ db.createCollection("nfts")
 db.createCollection("collections")
 db.createCollection("transactions")
 
+# Delete all items within a collection
+db. getCollection('orders'). deleteMany({})
+
 # Exit the MongoDB shell
 exit
 

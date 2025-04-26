@@ -26,6 +26,10 @@ const provider = new ethers.JsonRpcProvider(
   }
 );
 
+// Add a Set to track processed events
+const processedEvents = new Set();
+const eventTimestamps = new Map();
+
 // Main function
 async function main() {
   const chainId = (await provider.getNetwork()).chainId;
@@ -174,6 +178,14 @@ async function main() {
       }
     }
   `;
+  // Function to periodically clean up old event IDs
+
+  async function addEventWithBlockNumber(eventId) {
+    // Get the current block number
+    const blockNumber = await provider.getBlockNumber();
+    eventId = eventId + blockNumber;
+    return eventId;
+  }
 
   // Function to fetch NFT metadata from IPFS or other storage
   async function fetchMetadata(tokenURI) {
@@ -420,38 +432,34 @@ async function main() {
     }
   }
 
-  async function processListingEvent(tokenId, seller, price, txHash) {
-    /*     if (event.transactionHash) {
-      txHash = event.transactionHash;
-    } else if (event.transaction?.hash) {
-      txHash = event.transaction.hash;
-    } else if (event.log?.transactionHash) {
-      txHash = event.log.transactionHash;
-    } else if (event.getTransaction) {
-      try {
-        const tx = await event.getTransaction();
-        txHash = tx.hash;
-      } catch (txError) {
-        console.error("Error getting transaction:", txError);
+  async function processListingEvent(tokenId, seller, price, eventOrHash) {
+    // Extract transaction hash - handle both string and event object formats
+    let txHash;
+    if (typeof eventOrHash === "string") {
+      txHash = eventOrHash;
+    } else if (eventOrHash.transactionHash) {
+      txHash = eventOrHash.transactionHash;
+    } else if (typeof eventOrHash === "object" && eventOrHash !== null) {
+      // It's an event object, extract the hash
+      if (eventOrHash.transactionHash) {
+        txHash = eventOrHash.transactionHash;
+      } else if (eventOrHash.transaction?.hash) {
+        txHash = eventOrHash.transaction.hash;
+      } else if (eventOrHash.log?.transactionHash) {
+        txHash = eventOrHash.log.transactionHash;
+      } else {
+        // Generate a fallback hash if we can't find one
+        txHash = `auto-generated-${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2, 15)}`;
+        console.log(`Using generated placeholder transaction hash: ${txHash}`);
       }
     } else {
-      throw new Error("Transaction hash not found in event");
-    } */
-    /*     const txHash =
-      event.log?.transactionHash ||
-      event.transactionHash ||
-      event.transaction?.hash; */
-
-    function replaceBigInt(key, value) {
-      if (typeof value === "bigint") {
-        return value.toString();
-      }
-      return value;
-    }
-
-    if (!txHash) {
-      console.log("Event structure:", JSON.stringify(event, replaceBigInt, 2));
-      throw new Error("Transaction hash not found in event");
+      // Fallback to a dummy hash
+      txHash = `auto-generated-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
+      console.log(`Using generated placeholder transaction hash: ${txHash}`);
     }
 
     console.log(
@@ -491,6 +499,16 @@ async function main() {
         console.log(`Recorded listing of token #${tokenId}`);
       } catch (error) {
         console.error(`Error recording listing of NFT #${tokenId}:`, error);
+        if (
+          error.networkError &&
+          error.networkError.result &&
+          error.networkError.result.errors
+        ) {
+          console.error(
+            "GraphQL Error Details:",
+            JSON.stringify(error.networkError.result.errors, null, 2)
+          );
+        }
       }
     } else {
       console.log(`Token #${tokenId} not found. Creating new NFT record...`);
@@ -535,6 +553,7 @@ async function main() {
             mutation CreateNFT(
               $tokenId: String!
               $name: String!
+              $image: String!
               $owner: String!
               $creator: String!
               $price: Float
@@ -542,6 +561,7 @@ async function main() {
               createNFT(
                 tokenId: $tokenId
                 name: $name
+                image: $image
                 owner: $owner
                 creator: $creator
                 price: $price
@@ -556,6 +576,7 @@ async function main() {
             tokenId: tokenId.toString(),
             name: name || `NFT #${tokenId}`,
             owner: seller,
+            image: image || "",
             creator: seller,
             price: parseFloat(ethers.formatEther(price)),
           },
@@ -689,8 +710,21 @@ async function main() {
       console.log("Setting up event listeners...");
 
       // Listen for Transfer events (minting and transfers)
-      //nftContract.on("Transfer", processTransferEvent);
+
       nftContract.on("Transfer", async (from, to, tokenId, ...args) => {
+        // Create a unique identifier for this event
+        const basicEventId = `transfer-${from}-${to}-${tokenId.toString()}`;
+        const eventId = await addEventWithBlockNumber(basicEventId);
+
+        // Skip if we've already processed this event
+        if (processedEvents.has(eventId)) {
+          console.log(`Skipping already processed event: ${eventId}`);
+          return;
+        }
+
+        processedEvents.add(eventId);
+        console.log(eventId);
+
         console.log("Transfer event detected:", {
           from,
           to,
@@ -703,7 +737,7 @@ async function main() {
           console.log(`Current block number: ${blockNumber}`);
 
           // Get recent transfers involving this token (last 10 blocks)
-          const fromBlock = Math.max(blockNumber - 10, 0);
+          const fromBlock = Math.max(blockNumber - 30, 0);
 
           // In ethers v6, we need to use getEvents with an event filter
           const transferFilter = nftContract.filters.Transfer();
@@ -778,7 +812,20 @@ async function main() {
       //marketplaceContract.on("ItemListed", processListingEvent);
       marketplaceContract.on(
         "ItemListed",
-        async (seller, nftAddress, tokenId, price, ...args) => {
+        async (seller, nftAddress, tokenId, price, event) => {
+          // Create a unique identifier for this event
+          const basicEventId = `itemlisted-${seller}-${nftAddress}-${tokenId.toString()}`;
+          const eventId = await addEventWithBlockNumber(basicEventId);
+
+          // Skip if we've already processed this event
+          if (processedEvents.has(eventId)) {
+            console.log(`Skipping already processed event: ${eventId}`);
+            return;
+          }
+
+          // Mark as processed
+          processedEvents.add(eventId);
+
           console.log("ItemListed event detected:", {
             seller,
             nftAddress,
@@ -787,9 +834,33 @@ async function main() {
           });
 
           try {
-            // Get the current block number
+            // In ethers.js v6, the log should be accessible
+            if (event && event.log && event.log.transactionHash) {
+              txHash = event.log.transactionHash;
+              console.log(`Extracted transaction hash directly: ${txHash}`);
+            } else {
+              // Fallback for when the direct hash isn't available
+              console.log(
+                "Could not extract transaction hash directly from event:",
+                event
+              );
+
+              // Generate a fallback hash
+              txHash = `auto-generated-${Date.now()}-${Math.random()
+                .toString(36)
+                .substring(2, 15)}`;
+              console.log(
+                `Using generated placeholder transaction hash: ${txHash}`
+              );
+            }
+
+            // Process with the hash you extracted (or generated)
+            await processListingEvent(tokenId, seller, price, {
+              transactionHash: txHash,
+            });
+            /* // Get the current block number
             const blockNumber = await provider.getBlockNumber();
-            const fromBlock = Math.max(blockNumber - 10, 0);
+            const fromBlock = Math.max(blockNumber - 30, 0);
 
             // Use the contract's filter method to create a proper filter
             const itemListedFilter = marketplaceContract.filters.ItemListed();
@@ -830,7 +901,7 @@ async function main() {
               await processListingEvent(tokenId, seller, price, {
                 transactionHash: dummyTxHash,
               });
-            }
+            } */
           } catch (error) {
             console.error("Error in ItemListed event handler:", error);
             // Even if we encounter an error, try to process with a generated hash
@@ -858,6 +929,19 @@ async function main() {
       marketplaceContract.on(
         "ItemBought",
         async (buyer, nftAddress, tokenId, price, ...args) => {
+          // Create a unique identifier for this event
+          const basicEventId = `itembought-${buyer}-${nftAddress}-${tokenId.toString()}`;
+          const eventId = await addEventWithBlockNumber(basicEventId);
+
+          // Skip if we've already processed this event
+          if (processedEvents.has(eventId)) {
+            console.log(`Skipping already processed event: ${eventId}`);
+            return;
+          }
+
+          // Mark as processed
+          processedEvents.add(eventId);
+
           console.log("ItemBought event detected:", {
             buyer,
             nftAddress,
@@ -973,6 +1057,19 @@ async function main() {
       marketplaceContract.on(
         "ItemCanceled",
         async (seller, nftAddress, tokenId, ...args) => {
+          // Create a unique identifier for this event
+          const basicEventId = `itemcanceled-${seller}-${nftAddress}-${tokenId.toString()}`;
+          const eventId = await addEventWithBlockNumber(basicEventId);
+
+          // Skip if we've already processed this event
+          if (processedEvents.has(eventId)) {
+            console.log(`Skipping already processed event: ${eventId}`);
+            return;
+          }
+
+          // Mark as processed
+          processedEvents.add(eventId);
+
           console.log("ItemCanceled event detected:", {
             seller,
             nftAddress,

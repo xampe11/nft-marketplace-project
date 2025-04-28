@@ -3,7 +3,6 @@ const { moveBlocks } = require("../utils/move-blocks")
 const { get } = deployments
 
 async function mint() {
-    //const basicNft = await ethers.getContract("BasicNft")
     const basicNftDeployment = await get("BasicNft")
     const basicNft = await ethers.getContractAt("BasicNft", basicNftDeployment.address)
     const signer = await ethers.provider.getSigner()

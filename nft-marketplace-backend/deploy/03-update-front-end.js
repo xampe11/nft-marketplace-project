@@ -25,7 +25,6 @@ module.exports = async () => {
 }
 
 async function updateAbiFrontEnd() {
-    //const nftMarketplace = await ethers.getContract("NftMarketplace")
     const nftMarketplaceDeployment = await get("NftMarketplace")
     const nftMarketplace = await ethers.getContractAt(
         "NftMarketplace",
@@ -33,24 +32,15 @@ async function updateAbiFrontEnd() {
     )
     fs.writeFileSync(
         `${frontEndAbiLocation}NftMarketplace.json`,
-        //nftMarketplace.interface.format(ethers.utils.FormatTypes.json)
-        //JSON.stringify(nftMarketplace.interface.formatJson(), null, 2)
         nftMarketplace.interface.formatJson()
     )
 
-    //const basicNft = await ethers.getContract("BasicNft")
     const basicNftDeployment = await get("BasicNft")
     const basicNft = await ethers.getContractAt("BasicNft", basicNftDeployment.address)
-    fs.writeFileSync(
-        `${frontEndAbiLocation}BasicNft.json`,
-        //basicNft.interface.format(ethers.utils.FormatTypes.json)
-        //JSON.stringify(basicNft.interface.formatJson(), null, 2)
-        basicNft.interface.formatJson()
-    )
+    fs.writeFileSync(`${frontEndAbiLocation}BasicNft.json`, basicNft.interface.formatJson())
 }
 
 async function updateAbiDatabase() {
-    //const nftMarketplace = await ethers.getContract("NftMarketplace")
     const nftMarketplaceDeployment = await get("NftMarketplace")
     const nftMarketplace = await ethers.getContractAt(
         "NftMarketplace",
@@ -58,20 +48,12 @@ async function updateAbiDatabase() {
     )
     fs.writeFileSync(
         `${backEndDatabaseAbiLocation}NftMarketplace.json`,
-        //nftMarketplace.interface.format(ethers.utils.FormatTypes.json)
-        //JSON.stringify(nftMarketplace.interface.formatJson(), null, 2)
         nftMarketplace.interface.formatJson()
     )
 
-    //const basicNft = await ethers.getContract("BasicNft")
     const basicNftDeployment = await get("BasicNft")
     const basicNft = await ethers.getContractAt("BasicNft", basicNftDeployment.address)
-    fs.writeFileSync(
-        `${backEndDatabaseAbiLocation}BasicNft.json`,
-        //basicNft.interface.format(ethers.utils.FormatTypes.json)
-        //JSON.stringify(basicNft.interface.formatJson(), null, 2)
-        basicNft.interface.formatJson()
-    )
+    fs.writeFileSync(`${backEndDatabaseAbiLocation}BasicNft.json`, basicNft.interface.formatJson())
 }
 
 async function updateContractAddressesFrontEnd() {

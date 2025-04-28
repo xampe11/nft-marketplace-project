@@ -28,10 +28,6 @@ async function startServer() {
       // You can extract auth headers here for authentication
       const token = req.headers.authorization || "";
 
-      // Verify token & return context
-      // const user = getUser(token);
-      // return { user };
-
       return { token };
     },
     introspection: process.env.NODE_ENV !== "production",

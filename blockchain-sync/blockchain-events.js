@@ -858,50 +858,6 @@ async function main() {
             await processListingEvent(tokenId, seller, price, {
               transactionHash: txHash,
             });
-            /* // Get the current block number
-            const blockNumber = await provider.getBlockNumber();
-            const fromBlock = Math.max(blockNumber - 30, 0);
-
-            // Use the contract's filter method to create a proper filter
-            const itemListedFilter = marketplaceContract.filters.ItemListed();
-            const events = await marketplaceContract.queryFilter(
-              itemListedFilter,
-              fromBlock
-            );
-
-            // Filter events to match our tokenId
-            const matchingEvents = events.filter((event) => {
-              if (event.args && event.args.tokenId) {
-                return event.args.tokenId.toString() === tokenId.toString();
-              }
-              return false;
-            });
-
-            if (matchingEvents.length > 0) {
-              matchingEvents.sort((a, b) => b.blockNumber - a.blockNumber);
-              const mostRecentEvent = matchingEvents[0];
-              const txHash = mostRecentEvent.transactionHash;
-
-              console.log(
-                `Found transaction hash for listing tokenId ${tokenId}: ${txHash}`
-              );
-              await processListingEvent(tokenId, seller, price, {
-                transactionHash: txHash,
-              });
-            } else {
-              console.warn(
-                `No recent ItemListed events found for tokenId ${tokenId}`
-              );
-              const dummyTxHash = `auto-generated-${Date.now()}-${Math.random()
-                .toString(36)
-                .substring(2, 15)}`;
-              console.log(
-                `Using generated placeholder transaction hash: ${dummyTxHash}`
-              );
-              await processListingEvent(tokenId, seller, price, {
-                transactionHash: dummyTxHash,
-              });
-            } */
           } catch (error) {
             console.error("Error in ItemListed event handler:", error);
             // Even if we encounter an error, try to process with a generated hash
